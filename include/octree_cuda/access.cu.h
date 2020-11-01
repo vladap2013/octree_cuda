@@ -3,7 +3,7 @@
 namespace octree_cuda {
 
 template<size_t index, typename Point>
-__host__ __device__ get(const Point& point)
+__host__ __device__ float get(const Point& point)
 {
     static_assert(index < 3);
 
