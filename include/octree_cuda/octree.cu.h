@@ -68,7 +68,7 @@ public:
 
 private:
     void makeOctantTree();
-    Index makeOctant(const Point3D& center, float extent, Index startPoint, Index endPoint, size_t size);
+    Index makeOctant(const Point3D& center, float extent, Index startPoint, Index endPoint, size_t size, size_t level);
 
     template<typename T>
     friend class OctreeTest;

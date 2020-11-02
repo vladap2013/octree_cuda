@@ -166,7 +166,7 @@ void Octree<Point>::makeOctantTree()
         minValues = minValues.min(p);
         maxValues = maxValues.max(p);
 
-        successors_[i] = i < nPoints - 1 ? i + 1 : INVALID_INDEX;
+        successors_[i] = (i < nPoints - 1)? i + 1 : INVALID_INDEX;
     }
 
     const Point3D center = (minValues + maxValues) / 2;
@@ -174,7 +174,7 @@ void Octree<Point>::makeOctantTree()
 
     assert(extents.minElement() >= 0);
 
-    makeOctant(center, extents.maxElement(), 0, nPoints - 1, nPoints);
+    makeOctant(center, extents.maxElement(), 0, nPoints - 1, nPoints, 0);
 }
 
 template<typename Point>
@@ -183,16 +183,20 @@ Index Octree<Point>::makeOctant(
         const float extent,
         const Index startPoint,
         const Index endPoint,
-        const size_t size)
+        const size_t size,
+        const size_t level)
 {
+    if (level == impl::MAX_STACK_SIZE) {
+        throw std::runtime_error("Cannot build octree: too many levels");
+    }
 
     const Index octantIdx = octants_.size();
     octants_.emplace_back();
-    auto& o = octants_.back();
 
     assert(startPoint != INVALID_INDEX);
     assert(endPoint != INVALID_INDEX);
 
+    impl::Octant o;
     o.center = center;
     o.extent = extent;
     o.size = size;
@@ -206,6 +210,8 @@ Index Octree<Point>::makeOctant(
     if (o.isLeaf) {
         o.start = startPoint;
         o.end = endPoint;
+
+        octants_[octantIdx] = o;
         return octantIdx;
     }
 
@@ -219,11 +225,11 @@ Index Octree<Point>::makeOctant(
     std::array<ChildInfo, impl::N_OCTANT_CHILDREN> childInfo;
 
     Index pointIdx = startPoint;
-    for (size_t cnt = 0; cnt < size; ++cnt, pointIdx = successors_[pointIdx])
+    for (size_t cnt = 0; cnt < size; ++cnt)
     {
         assert(pointIdx != INVALID_INDEX);
 
-        const Point& p = hostPoints_[pointIdx];
+        const Point3D p = Point3D(hostPoints_[pointIdx]);
         const auto childIdx = center.mortonCode(p);
         assert(childIdx < impl::N_OCTANT_CHILDREN);
 
@@ -235,10 +241,13 @@ Index Octree<Point>::makeOctant(
             info.end = pointIdx;
         }
 
+        const Index nextIdx = successors_[pointIdx];
+
         successors_[pointIdx] = info.start;
         info.start = pointIdx;
 
         assert(cnt < size - 1 || pointIdx == endPoint);
+        pointIdx = nextIdx;
     }
 
     Index lastChildIdx = INVALID_INDEX;
@@ -256,14 +265,14 @@ Index Octree<Point>::makeOctant(
         const float oExtent = extent * 0.5;
 
         Point3D move;
-        for (size_t d : {0, 1, 2}) {
-            move[d] = ((childIdx & d) > 0 ? 1 : -1) * oExtent;
+        for (int d : {0, 1, 2}) {
+            move[d] = ((childIdx & (1 << d)) > 0 ? 1 : -1) * oExtent;
         }
 
         const Point3D oCenter = center + move;
 
         Index& child = o.children[childIdx];
-        child = makeOctant(oCenter, oExtent, info.start, info.end, info.count);
+        child = makeOctant(oCenter, oExtent, info.start, info.end, info.count, level + 1);
 
         assert(child != INVALID_INDEX);
         assert(octants_[child].size == info.count);
@@ -283,11 +292,12 @@ Index Octree<Point>::makeOctant(
         lastChildIdx = childIdx;
     }
 
-    assert(lastChildIdx != INVALID_INDEX);
+    assert(lastChildIdx != impl::INVALID_CHILD);
     o.end = octants_[o.children[lastChildIdx]].end;
 
     assert(successors_[o.end] == INVALID_INDEX);
 
+    octants_[octantIdx] = o;
     return octantIdx;
 }
 

@@ -56,8 +56,8 @@ if (NOT TARGET gtest_main)
 endif()
 
 add_executable(octree_cuda_tests
-	tests/test_simple.cpp.cu
+	tests/test_octree.cpp.cu
 )
-target_link_libraries(octree_cuda_tests octree_cuda gtest_main)
+target_link_libraries(octree_cuda_tests octree_cuda glog::glog gtest_main)
 
 add_test(octree_cuda_tests octree_cuda_tests)

@@ -60,24 +60,18 @@ struct Point3D
         return { f(x, other.x), f(y, other.y), f(z, other.z) };
     }
 
-    __host__ __device__ uint8_t mortonCode(const Point3D& point)
+    __host__ __device__ uint8_t mortonCode(const Point3D& point) const
     {
-        uint8_t mortonCode = 0;
+        uint8_t code = 0;
 
         constexpr int DIMS[] = {0, 1, 2};
         for (auto dim : DIMS) {
             if (point[dim] > (*this)[dim]) {
-                mortonCode |= (1 << dim);
+                code |= (1 << dim);
             }
         }
 
-        return mortonCode;
-    }
-
-    template<typename Point>
-    __host__ __device__ uint8_t mortonCode(const Point& point) const
-    {
-        return mortonCode(Point3D(point));
+        return code;
     }
 
     __host__ __device__ Point3D abs() const
@@ -129,6 +123,12 @@ __host__ __device__ Point3D operator*(float f, const Point3D& p)
 __host__ __device__ Point3D operator/(const Point3D& p, float f)
 {
     return { p.x / f, p.y / f, p.z / f};
+}
+
+std::ostream& operator<<(std::ostream& os, const Point3D& p)
+{
+    os << p.x << ", " << p.y << ", " << p.z;
+    return os;
 }
 
 }
