@@ -7,6 +7,7 @@
 #include <string>
 #include <chrono>
 #include <random>
+#include <type_traits>
 
 template<typename Point>
 __global__ void runQuery(cudex::DeviceSpan<Point> queries,
@@ -22,12 +23,17 @@ __global__ void runQuery(cudex::DeviceSpan<Point> queries,
     result[index] = r;
 }
 
-template<typename Point, typename T>
+template<typename P=void, typename Point, typename T>
 std::vector<size_t> runQueryCPU(cudex::HostSpan<Point> queries, const T& q)
 {
     std::vector<size_t> result(queries.size());
     for (size_t i=0; i < queries.size(); ++i) {
-        result[i] = q.findNeighbor(queries[i]);
+        if constexpr(std::is_same_v<P, void>) {
+            result[i] = q.findNeighbor(queries[i]);
+        }
+        else {
+            result[i] = q.template findNeighbor<P>(queries[i]);
+        }
     }
 
     return result;

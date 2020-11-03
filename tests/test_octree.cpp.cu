@@ -1,6 +1,8 @@
 #include "gtest/gtest.h"
 #include "glog/logging.h"
 
+#include "Octree.hpp"
+
 #include "octree_cuda/octree.cu.h"
 #include "cudex/launcher.cu.h"
 
@@ -71,7 +73,7 @@ TEST(octree_cuda, cube)
         EXPECT_EQ(hostq.findNeighbor(queries[i]), results[i]);
     }
 
-    OctreeTest t{octree};
+    octree_cuda::OctreeTest t{octree};
     t.check();
 }
 
@@ -102,8 +104,15 @@ TEST(octree_cuda, random)
     VLOG(1) << timerInit.printMs("octree_cuda: init time");
 
     // validate internal structures
-    OctreeTest t{octree};
+    octree_cuda::OctreeTest t{octree};
     t.check();
+
+    // UniBn Octree init
+    unibn::Octree<float3, cudex::HostSpan<float3>> unibn;
+    const auto timerInitUnibnInit = Timer();
+    const auto hostSpan = pointsMem.host();
+    unibn.initialize(hostSpan);
+    VLOG(1) << timerInitUnibnInit.printMs("unibn: init time");
 
     // octree_cuda gpu query
     const auto gpuq = octree.deviceIndex();
@@ -117,17 +126,22 @@ TEST(octree_cuda, random)
     resultsMem.copyDeviceToHost();
     const auto cpuq = octree.hostIndex();
     const auto timerCPU = Timer();
-    auto cpuResult = runQueryCPU(queriesMem.host(), cpuq);
+    const auto cpuResult = runQueryCPU(queriesMem.host(), cpuq);
     VLOG(1) << timerCPU.printMs("octree_cuda: cpu time");
 
     EXPECT_EQ(cpuResult.size(), queriesMem.size());
 
-    // const auto timerCPU = Timer();
-    // for (size_t i=0; i < N_QUERIES; ++i) {
-    //     const size_t minTree = octree.findNeighbor(queries[i]);
-    //     EXPECT_EQ(resultsMem[i], minTree);
-    // }
-    // VLOG(1) << timerCPU.printMs("CPU timer");
+    // unibn cpu query
+    const auto timerInitUnibn = Timer();
+    const auto unibnResult = runQueryCPU<unibn::L2Distance<float3>>(queriesMem.host(), unibn);
+    VLOG(1) << timerInitUnibn.printMs("unibn: query time");
+
+    EXPECT_EQ(unibnResult.size(), queriesMem.size());
+
+    for (size_t i=0; i < N_QUERIES; ++i) {
+        EXPECT_EQ(cpuResult[i], resultsMem[i]);
+        EXPECT_EQ(cpuResult[i], unibnResult[i]);
+    }
 
     for (size_t i=0; i < 50; ++i) {
         const size_t minLoop = findClosest(queriesMem[i], pointsMem.host());
