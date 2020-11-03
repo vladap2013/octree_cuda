@@ -170,11 +170,11 @@ void Octree<Point>::makeOctantTree()
     }
 
     const Point3D center = (minValues + maxValues) / 2;
-    const Point3D extents = maxValues - minValues;
+    const Point3D extents = maxValues - center;
 
     assert(extents.minElement() >= 0);
 
-    makeOctant(center, extents.maxElement(), 0, nPoints - 1, nPoints, 0);
+    makeOctant(center, extents.maxElement() * 1.01, 0, nPoints - 1, nPoints, 0);
 }
 
 template<typename Point>
@@ -231,23 +231,23 @@ Index Octree<Point>::makeOctant(
 
         const Point3D p = Point3D(hostPoints_[pointIdx]);
         const auto childIdx = center.mortonCode(p);
+
         assert(childIdx < impl::N_OCTANT_CHILDREN);
 
         auto& info = childInfo[childIdx];
 
-        info.count ++;
-
-        if (info.end == INVALID_INDEX) {
-            info.end = pointIdx;
+        if (info.count == 0) {
+            info.start = pointIdx;
+        }
+        else {
+            assert(info.end != INVALID_INDEX);
+            successors_[info.end] = pointIdx;
         }
 
-        const Index nextIdx = successors_[pointIdx];
+        info.end = pointIdx;
+        info.count ++;
 
-        successors_[pointIdx] = info.start;
-        info.start = pointIdx;
-
-        assert(cnt < size - 1 || pointIdx == endPoint);
-        pointIdx = nextIdx;
+        pointIdx = successors_[pointIdx];
     }
 
     Index lastChildIdx = INVALID_INDEX;
@@ -260,7 +260,6 @@ Index Octree<Point>::makeOctant(
 
         assert(info.start != INVALID_INDEX);
         assert(info.end != INVALID_INDEX);
-        assert(successors_[info.end] == INVALID_INDEX);
 
         const float oExtent = extent * 0.5;
 
@@ -284,8 +283,6 @@ Index Octree<Point>::makeOctant(
             impl::Octant& lastChildOctant = octants_[o.children[lastChildIdx]];
 
             assert(lastChildIdx < childIdx);
-            assert(successors_[lastChildOctant.end] == INVALID_INDEX);
-
             successors_[lastChildOctant.end] = octants_[child].start;
         }
 
@@ -294,8 +291,7 @@ Index Octree<Point>::makeOctant(
 
     assert(lastChildIdx != impl::INVALID_CHILD);
     o.end = octants_[o.children[lastChildIdx]].end;
-
-    assert(successors_[o.end] == INVALID_INDEX);
+    successors_[o.end] = INVALID_INDEX;
 
     octants_[octantIdx] = o;
     return octantIdx;

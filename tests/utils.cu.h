@@ -174,7 +174,7 @@ void OctreeTest<Point>::checkOctant(Index idx)
     if (o.isLeaf) {
         forEachPointInOctant(o, [this, &o](Index pt) {
             const auto p = Point3D(ot.hostPoints_[pt]);
-            ASSERT_LE((p - o.center).abs().maxElement(), o.extent);
+            ASSERT_LE((p - o.center).abs().maxElement() * 0.99999, o.extent);
         });
     }
     else {
