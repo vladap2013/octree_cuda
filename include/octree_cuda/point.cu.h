@@ -96,36 +96,47 @@ struct Point3D
 
 };
 
-__host__ __device__ Point3D operator-(const Point3D& p1, const Point3D& p2)
+__host__ __device__ inline Point3D operator-(const Point3D& p1, const Point3D& p2)
 {
     return {p1.x - p2.x, p1.y - p2.y, p1.z - p2.z};
 }
 
-__host__ __device__ Point3D operator+(const Point3D& p1, const Point3D& p2)
+__host__ __device__ inline Point3D operator+(const Point3D& p1, const Point3D& p2)
 {
     return {p1.x + p2.x, p1.y + p2.y, p1.z + p2.z};
 }
 
-__host__ __device__ Point3D operator+(const Point3D& p, float f)
+__host__ __device__ inline Point3D operator+(const Point3D& p, float f)
 {
     return p + Point3D(f, f, f);
 }
 
-__host__ __device__ Point3D operator-(const Point3D& p, float f)
+__host__ __device__ inline Point3D operator-(const Point3D& p, float f)
 {
     return p - Point3D(f, f, f);
 }
-__host__ __device__ Point3D operator*(float f, const Point3D& p)
+
+__host__ __device__ inline Point3D operator*(float f, const Point3D& p)
 {
     return { p.x * f, p.y * f, p.z * f};
 }
 
-__host__ __device__ Point3D operator/(const Point3D& p, float f)
+__host__ __device__ inline Point3D operator/(const Point3D& p, float f)
 {
     return { p.x / f, p.y / f, p.z / f};
 }
 
-std::ostream& operator<<(std::ostream& os, const Point3D& p)
+__host__ __device__ inline bool operator==(const Point3D& p1, const Point3D& p2)
+{
+    return p1.x == p2.x && p1.y == p2.y && p1.z == p2.z;
+}
+
+__host__ __device__ inline bool operator!=(const Point3D& p1, const Point3D& p2)
+{
+    return !(p1 == p2);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Point3D& p)
 {
     os << p.x << ", " << p.y << ", " << p.z;
     return os;

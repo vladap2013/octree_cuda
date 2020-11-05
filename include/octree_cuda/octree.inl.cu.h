@@ -32,10 +32,8 @@ struct Octant
         assert(isfinite(radius));
         assert(isfinite(extent));
 
-        // We use the assumption that norm(x) >= abs(x_i), for all i,
-        // and that octant is a box with axis aligned sides.
         const Point3D diff = (center - ballCenter).abs();
-        return (diff + radius).maxElement() < extent;
+        return (diff + radius).maxElement() <= extent;
     }
 
     // Checks if the open ball intersects the quadrant
@@ -48,31 +46,15 @@ struct Octant
         assert(isfinite(radius));
         assert(isfinite(extent));
 
-        const Point3D diff = (center - ballCenter).abs();
+        const Point3D absDiff = (center - ballCenter).abs();
 
-        if (diff.maxElement() >= radius + extent) {
+        if (absDiff.maxElement() >= radius + extent) {
             // If distance in any coordinate between centers is >= than maxDist, there is no intersection
-            // We use the assumption that norm(x) >= abs(x_i), for all i.
             return false;
         }
 
-        int nLessExtent = 0;
-        const Point3D diff2 = (diff - extent).max(Point3D(0, 0, 0));
-
-        for (auto d: {0, 1, 2}) {
-            if (diff[d] <= extent) {
-                ++nLessExtent;
-            }
-        }
-
-        if (nLessExtent >= 2) {
-            // ball center belongs to a projection of a quadrant on one of coordinate planes, and
-            // there is an overlap in the third coordinate (which is checked in the previous step).
-
-            return true;
-        }
-
-        return diff2.squaredNormL2() < radius * radius;
+        const Point3D diffToClosestPoint = (absDiff - extent).max(Point3D(0, 0, 0));
+        return diffToClosestPoint.squaredNormL2() < radius * radius;
     }
 };
 
