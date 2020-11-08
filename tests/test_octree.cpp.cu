@@ -121,9 +121,9 @@ TEST(octree_cuda, random)
     const auto timerCuda = Timer();
     launcher.run(runQuery<float3>, queriesMem.device(), gpuq, resultsMem.device());
     VLOG(1) << timerCuda.printMs("octree_cuda: cuda time");
+    resultsMem.copyDeviceToHost();
 
     // octree_cuda cpu query
-    resultsMem.copyDeviceToHost();
     const auto cpuq = octree.hostIndex();
     const auto timerCPU = Timer();
     const auto cpuResult = runQueryCPU(queriesMem.host(), cpuq);

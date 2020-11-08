@@ -145,6 +145,10 @@ void Octree<Point>::makeOctantTree()
     for (size_t i=0; i < nPoints; ++i) {
         const Point3D p = Point3D(hostPoints_[i]);
 
+        assert(isfinite(p.x));
+        assert(isfinite(p.y));
+        assert(isfinite(p.z));
+
         minValues = minValues.min(p);
         maxValues = maxValues.max(p);
 
@@ -171,6 +175,9 @@ Index Octree<Point>::makeOctant(
     if (level == impl::MAX_STACK_SIZE) {
         throw std::runtime_error("Cannot build octree: too many levels");
     }
+
+    // VLOG(2) << "Octant: " << center << ", extent: " << extent << ", size: " << size
+    //     << ", level: " << level;
 
     const Index octantIdx = octants_.size();
     octants_.emplace_back();
