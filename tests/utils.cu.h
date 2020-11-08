@@ -97,52 +97,27 @@ public:
         return ot.octants_[idx];
     }
 
-    template<typename F>
-    void forEachPointInOctant(const impl::Octant& octant, F f);
-
 private:
     void checkPoints();
     void checkOctant(Index);
 
 public:
     const Octree<Point>& ot;
-    std::vector<Index> pointOrdering;
 };
-
-template<typename Point>
-template<typename F>
-void OctreeTest<Point>::forEachPointInOctant(const impl::Octant& o, F f)
-{
-    Index pt = o.start;
-    Index ptPrev = INVALID_INDEX;
-
-    for (size_t i=0; i < o.size; ++i, pt = ot.successors_[pt]) {
-        ASSERT_TRUE(pt != o.end || i == o.size-1);
-        ASSERT_NE(pt, INVALID_INDEX);
-        ASSERT_LT(pt, nPoints());
-
-        ptPrev = pt;
-        f(pt);
-    }
-
-    CHECK_EQ(ptPrev, o.end);
-}
 
 template<typename Point>
 void OctreeTest<Point>::check()
 {
     ASSERT_GT(ot.hostPoints_.size(), 0);
-
-    ASSERT_EQ(ot.successors_.size(), nPoints());
+    ASSERT_EQ(ot.pointIndexes_.size(), nPoints());
 
     checkPoints();
 
     ASSERT_GT(ot.octants_.size(), 0);
 
-    ASSERT_EQ(octant(0).size, nPoints());
-    ASSERT_EQ(pointOrdering[octant(0).start], 0);
-    ASSERT_EQ(pointOrdering[octant(0).end], nPoints() - 1);
-    ASSERT_EQ(ot.successors_[octant(0).end], INVALID_INDEX);
+    ASSERT_EQ(octant(0).size(), nPoints());
+    ASSERT_EQ(octant(0).start, 0);
+    ASSERT_EQ(octant(0).end, nPoints() - 1);
 
     checkOctant(0);
 }
@@ -150,38 +125,38 @@ void OctreeTest<Point>::check()
 template<typename Point>
 void OctreeTest<Point>::checkPoints()
 {
-    pointOrdering = std::vector<Index>(nPoints(), INVALID_INDEX);
+    auto seen = std::vector<bool>(nPoints(), false);
 
-    size_t cnt = 0;
-    forEachPointInOctant(octant(0), [this, &cnt](Index pt) {
-        ASSERT_EQ(pointOrdering[pt], INVALID_INDEX);
-        pointOrdering[pt] = cnt++;
-    });
+    for (size_t i = 0; i < nPoints(); ++i) {
+        const Index ptIndex = ot.pointIndexes_[i];
 
-    ASSERT_EQ(cnt, nPoints());
+        ASSERT_NE(ptIndex, INVALID_INDEX);
+        ASSERT_LT(ptIndex, ot.hostPoints_.size());
+
+        ASSERT_FALSE(seen[ptIndex]);
+        seen[ptIndex] = true;
+    }
+
 }
 
 template<typename Point>
 void OctreeTest<Point>::checkOctant(Index idx)
 {
-
     auto& o = octant(idx);
 
-    ASSERT_GT(o.size, 0);
-    ASSERT_LE(pointOrdering[o.start], pointOrdering[o.end]);
-    ASSERT_EQ(o.size, pointOrdering[o.end] - pointOrdering[o.start] + 1);
+    ASSERT_LE(o.start, o.end);
+    ASSERT_GT(o.size(), 0);
 
     if (o.isLeaf) {
-        forEachPointInOctant(o, [this, &o](Index pt) {
-            const auto p = Point3D(ot.hostPoints_[pt]);
+        for (size_t i = 0; i < o.size(); ++i) {
+            const auto p = Point3D(ot.hostPoints_[ot.pointIndexes_[o.start + i]]);
             ASSERT_LE((p - o.center).abs().maxElement() * 0.99999, o.extent);
-        });
+        };
     }
     else {
-        Index end = 0;
-        Index beg = static_cast<Index>(-1);
-
         size_t cnt = 0;
+
+        Index prevEnd = INVALID_INDEX;
 
         for(size_t i=0; i < impl::N_OCTANT_CHILDREN; ++i) {
             if (o.children[i] == INVALID_INDEX) {
@@ -191,19 +166,20 @@ void OctreeTest<Point>::checkOctant(Index idx)
             checkOctant(o.children[i]);
 
             auto &oc = octant(o.children[i]);
+
             // oc.extent is sligthly decreased because of numerical errors.
             ASSERT_TRUE(
                 o.containsBall(oc.center, oc.extent * 0.99999)
             ) << o.center << "; " << o.extent << " - " << oc.center << "; " << oc.extent;
 
-            beg = std::min(beg, pointOrdering[oc.start]);
-            end = std::max(end, pointOrdering[oc.end]);
-            cnt += oc.size;
+            ASSERT_EQ(oc.start, prevEnd != INVALID_INDEX ? prevEnd + 1 : o.start);
+
+            prevEnd = oc.end;
+            cnt += oc.size();
         }
 
-        ASSERT_EQ(cnt, o.size);
-        ASSERT_EQ(beg, pointOrdering[o.start]);
-        ASSERT_EQ(end, pointOrdering[o.end]);
+        ASSERT_EQ(cnt, o.size());
+        ASSERT_EQ(prevEnd, o.end);
     }
 }
 

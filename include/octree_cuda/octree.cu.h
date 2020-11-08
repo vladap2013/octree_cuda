@@ -35,7 +35,7 @@ public:
 private:
     Span<const Point> points_;
     Span<const Octant> octants_;
-    Span<const Index> successors_;
+    Span<const Index> pointIndexes_;
 };
 
 
@@ -68,7 +68,7 @@ public:
 
 private:
     void makeOctantTree();
-    Index makeOctant(const Point3D& center, float extent, Index startPoint, Index endPoint, size_t size, size_t level);
+    Index makeOctant(const Point3D& center, float extent, Index startPoint, Index endPoint, size_t level);
 
     template<typename T>
     friend class OctreeTest;
@@ -79,10 +79,13 @@ private:
     cudex::HostSpan<const Point> hostPoints_;
     cudex::DeviceSpan<const Point> devicePoints_;
 
-    std::vector<Index> successors_;
+    std::vector<Index> pointIndexes_;
     std::vector<impl::Octant> octants_;
 
-    cudex::DeviceMemory<Index> successorsMem_;
+    std::vector<Index> tmpIndexes_;
+    std::vector<uint8_t> tmpCategories_;
+
+    cudex::DeviceMemory<Index> pointIndexesMem_;
     cudex::DeviceMemory<impl::Octant> octantsMem_;
 };
 

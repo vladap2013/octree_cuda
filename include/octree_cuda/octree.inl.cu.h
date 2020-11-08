@@ -22,9 +22,14 @@ struct Octant
 
     Index start;
     Index end;
-    size_t size;
 
     cudex::UArray<Index, N_OCTANT_CHILDREN> children;
+
+    __host__ __device__ size_t size() const
+    {
+        assert(start <= end);
+        return end - start + 1;
+    }
 
     // Checks if the open ball belongs to the quadrant
     __host__ __device__ bool containsBall(const Point3D& ballCenter, const float radius) const
@@ -85,7 +90,7 @@ template<typename Point>
 auto Octree<Point>::hostIndex() const -> HostOctreeIndex<Point>
 {
     assert(!hostPoints_.empty());
-    return {hostPoints_, cudex::makeSpan(octants_), cudex::makeSpan(successors_)};
+    return {hostPoints_, cudex::makeSpan(octants_), cudex::makeSpan(pointIndexes_)};
 }
 
 template<typename Point>
@@ -96,9 +101,9 @@ auto Octree<Point>::deviceIndex() -> DeviceOctreeIndex<Point>
     }
 
     octantsMem_.resizeCopy(cudex::makeSpan(octants_));
-    successorsMem_.resizeCopy(cudex::makeSpan(successors_));
+    pointIndexesMem_.resizeCopy(cudex::makeSpan(pointIndexes_));
 
-    return {devicePoints_, octantsMem_.span(), successorsMem_.span()};
+    return {devicePoints_, octantsMem_.span(), pointIndexesMem_.span()};
 }
 
 template<typename Point>
@@ -137,7 +142,7 @@ void Octree<Point>::makeOctantTree()
 
     const size_t nPoints = hostPoints_.size();
 
-    successors_.resize(hostPoints_.size());
+    pointIndexes_.resize(hostPoints_.size());
 
     Point3D minValues = Point3D(hostPoints_[0]);
     Point3D maxValues = minValues;
@@ -152,7 +157,7 @@ void Octree<Point>::makeOctantTree()
         minValues = minValues.min(p);
         maxValues = maxValues.max(p);
 
-        successors_[i] = (i < nPoints - 1)? i + 1 : INVALID_INDEX;
+        pointIndexes_[i] = i;
     }
 
     const Point3D center = (minValues + maxValues) / 2;
@@ -160,35 +165,38 @@ void Octree<Point>::makeOctantTree()
 
     assert(extents.minElement() >= 0);
 
-    makeOctant(center, extents.maxElement() * 1.01, 0, nPoints - 1, nPoints, 0);
+    makeOctant(center, extents.maxElement() * 1.01, 0, nPoints - 1, 0);
 }
 
 template<typename Point>
 Index Octree<Point>::makeOctant(
         const Point3D& center,
         const float extent,
-        const Index startPoint,
-        const Index endPoint,
-        const size_t size,
+        const Index start,
+        const Index end,
         const size_t level)
 {
     if (level == impl::MAX_STACK_SIZE) {
         throw std::runtime_error("Cannot build octree: too many levels");
     }
 
-    // VLOG(2) << "Octant: " << center << ", extent: " << extent << ", size: " << size
+    // VLOG(2) << "Octant: " << center << ", extent: " << extent << ", size: " << (end - start + 1)
     //     << ", level: " << level;
 
     const Index octantIdx = octants_.size();
     octants_.emplace_back();
 
-    assert(startPoint != INVALID_INDEX);
-    assert(endPoint != INVALID_INDEX);
+    assert(start <= end);
+    assert(end < hostPoints_.size());
 
     impl::Octant o;
+
     o.center = center;
     o.extent = extent;
-    o.size = size;
+    o.start = start;
+    o.end = end;
+
+    const size_t size = end - start + 1;
 
     o.isLeaf = size <= params_.bucketSize || extent <= 2 * params_.minExtent;
 
@@ -197,9 +205,6 @@ Index Octree<Point>::makeOctant(
     }
 
     if (o.isLeaf) {
-        o.start = startPoint;
-        o.end = endPoint;
-
         octants_[octantIdx] = o;
         return octantIdx;
     }
@@ -213,9 +218,14 @@ Index Octree<Point>::makeOctant(
 
     std::array<ChildInfo, impl::N_OCTANT_CHILDREN> childInfo;
 
-    Index pointIdx = startPoint;
-    for (size_t cnt = 0; cnt < size; ++cnt)
+    tmpIndexes_.resize(size);
+    tmpCategories_.resize(size);
+
+    // ---- Split points according to child octant
+
+    for (size_t i = 0; i < size; ++i)
     {
+        const Index pointIdx = pointIndexes_[start + i];
         assert(pointIdx != INVALID_INDEX);
 
         const Point3D p = Point3D(hostPoints_[pointIdx]);
@@ -223,23 +233,44 @@ Index Octree<Point>::makeOctant(
 
         assert(childIdx < impl::N_OCTANT_CHILDREN);
 
+        tmpCategories_[i] = childIdx;
+        auto& info = childInfo[childIdx];
+        info.count ++;
+    }
+
+    uint8_t lastValidChild = impl::INVALID_CHILD;
+    for (size_t childIdx = 0; childIdx < impl::N_OCTANT_CHILDREN; ++childIdx) {
         auto& info = childInfo[childIdx];
 
         if (info.count == 0) {
-            info.start = pointIdx;
-        }
-        else {
-            assert(info.end != INVALID_INDEX);
-            successors_[info.end] = pointIdx;
+            continue;
         }
 
-        info.end = pointIdx;
-        info.count ++;
+        info.start = lastValidChild == impl::INVALID_CHILD ? 0 : childInfo[lastValidChild].end + 1;
+        info.end = info.start + info.count - 1;
 
-        pointIdx = successors_[pointIdx];
+        lastValidChild = childIdx;
     }
 
-    Index lastChildIdx = INVALID_INDEX;
+    assert(lastValidChild != impl::INVALID_CHILD);
+    assert(childInfo[lastValidChild].end + start == end);
+
+    std::array<size_t, impl::N_OCTANT_CHILDREN> counts = {};
+
+    for (size_t i = 0; i < size; ++i)
+    {
+        const uint8_t childIdx = tmpCategories_[i];
+        auto& info = childInfo[childIdx];
+
+        assert(counts[childIdx] < info.count);
+        tmpIndexes_[info.start + counts[childIdx]] = pointIndexes_[start + i];
+        ++counts[childIdx];
+    }
+
+    std::copy(tmpIndexes_.begin(), tmpIndexes_.end(), pointIndexes_.begin() + start);
+
+    // ---- Create child octants
+
     for (size_t childIdx = 0; childIdx < impl::N_OCTANT_CHILDREN; ++childIdx) {
         const auto& info = childInfo[childIdx];
 
@@ -260,27 +291,11 @@ Index Octree<Point>::makeOctant(
         const Point3D oCenter = center + move;
 
         Index& child = o.children[childIdx];
-        child = makeOctant(oCenter, oExtent, info.start, info.end, info.count, level + 1);
+        child = makeOctant(oCenter, oExtent, start + info.start, start + info.end, level + 1);
 
         assert(child != INVALID_INDEX);
-        assert(octants_[child].size == info.count);
-
-        if (lastChildIdx == INVALID_INDEX) {
-            o.start = octants_[child].start;
-        }
-        else {
-            impl::Octant& lastChildOctant = octants_[o.children[lastChildIdx]];
-
-            assert(lastChildIdx < childIdx);
-            successors_[lastChildOctant.end] = octants_[child].start;
-        }
-
-        lastChildIdx = childIdx;
+        assert(octants_[child].size() == info.count);
     }
-
-    assert(lastChildIdx != impl::INVALID_CHILD);
-    o.end = octants_[o.children[lastChildIdx]].end;
-    successors_[o.end] = INVALID_INDEX;
 
     octants_[octantIdx] = o;
     return octantIdx;
@@ -294,10 +309,10 @@ template<bool isDevice, typename Point>
 __host__ OctreeIndex<isDevice, Point>::OctreeIndex(
         Span<const Point> points,
         Span<const impl::Octant> octants,
-        Span<const Index> successors)
+        Span<const Index> pointIndexes)
     : points_(points)
     , octants_(octants)
-    , successors_(successors)
+    , pointIndexes_(pointIndexes)
 {}
 
 template<bool isDevice, typename Point>
@@ -358,12 +373,11 @@ __host__ __device__ Index OctreeIndex<isDevice, Point>::findNeighbor(const Point
         // Check leaf
         if (octant.isLeaf)
         {
-            assert(octant.size > 0);
+            assert(octant.size() > 0);
 
-            Index currentIndex = octant.start;
-            for (size_t i = 0; i < octant.size; ++i)
+            for (size_t i = 0; i < octant.size(); ++i)
             {
-                assert(currentIndex != INVALID_INDEX);
+                const Index currentIndex = pointIndexes_[octant.start + i];
 
                 const float dist2 = (query - Point3D(points_[currentIndex])).squaredNormL2();
                 if (minDistance2 < dist2 && dist2 < maxDistance2)
@@ -371,8 +385,6 @@ __host__ __device__ Index OctreeIndex<isDevice, Point>::findNeighbor(const Point
                     maxDistance2 = dist2;
                     closest = currentIndex;
                 }
-
-                currentIndex = successors_[currentIndex];
             }
 
             maxDistance = sqrt(maxDistance2);
