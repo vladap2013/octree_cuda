@@ -55,6 +55,7 @@ if (NOT TARGET gtest_main)
 	FetchContent_MakeAvailable(googletest)
 endif()
 
+# main test
 add_executable(octree_cuda_tests
 	tests/test_helpers.cpp.cu
 	tests/test_octree.cpp.cu
@@ -62,3 +63,16 @@ add_executable(octree_cuda_tests
 target_link_libraries(octree_cuda_tests octree_cuda glog::glog gtest_main)
 
 add_test(octree_cuda_tests octree_cuda_tests)
+
+# point cloud test
+add_executable(octree_cuda_test_point_clouds
+	tests/test_octree_point_clouds.cpp.cu
+)
+
+target_link_libraries(octree_cuda_test_point_clouds octree_cuda glog::glog gtest_main)
+
+target_compile_definitions(octree_cuda_test_point_clouds PUBLIC
+	TEST_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/point_clouds/"
+)
+
+add_test(octree_cuda_test_point_clouds octree_cuda_test_point_clouds)
