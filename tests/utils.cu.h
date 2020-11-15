@@ -115,9 +115,8 @@ void OctreeTest<Point>::check()
 
     ASSERT_GT(ot.octants_.size(), 0);
 
-    ASSERT_EQ(octant(0).size(), nPoints());
+    ASSERT_EQ(octant(0).count, nPoints());
     ASSERT_EQ(octant(0).start, 0);
-    ASSERT_EQ(octant(0).end, nPoints() - 1);
 
     checkOctant(0);
 }
@@ -136,7 +135,6 @@ void OctreeTest<Point>::checkPoints()
         ASSERT_FALSE(seen[ptIndex]);
         seen[ptIndex] = true;
     }
-
 }
 
 template<typename Point>
@@ -144,11 +142,10 @@ void OctreeTest<Point>::checkOctant(Index idx)
 {
     auto& o = octant(idx);
 
-    ASSERT_LE(o.start, o.end);
-    ASSERT_GT(o.size(), 0);
+    ASSERT_GT(o.count, 0);
 
     if (o.isLeaf) {
-        for (size_t i = 0; i < o.size(); ++i) {
+        for (size_t i = 0; i < o.count; ++i) {
             const auto p = Point3D(ot.hostPoints_[ot.pointIndexes_[o.start + i]]);
             ASSERT_LE((p - o.center).abs().maxElement() * 0.99999, o.extent);
         };
@@ -172,14 +169,14 @@ void OctreeTest<Point>::checkOctant(Index idx)
                 o.containsBall(oc.center, oc.extent * 0.99999)
             ) << o.center << "; " << o.extent << " - " << oc.center << "; " << oc.extent;
 
-            ASSERT_EQ(oc.start, prevEnd != INVALID_INDEX ? prevEnd + 1 : o.start);
+            ASSERT_EQ(oc.start, prevEnd != INVALID_INDEX ? prevEnd + 1: o.start);
 
-            prevEnd = oc.end;
-            cnt += oc.size();
+            prevEnd = oc.start + oc.count - 1;
+            cnt += oc.count;
         }
 
-        ASSERT_EQ(cnt, o.size());
-        ASSERT_EQ(prevEnd, o.end);
+        ASSERT_EQ(cnt, o.count);
+        ASSERT_EQ(prevEnd, o.start + o.count - 1);
     }
 }
 

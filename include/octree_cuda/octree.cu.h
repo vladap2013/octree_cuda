@@ -4,6 +4,9 @@
 #include "point.cu.h"
 
 #include "cudex/memory.cu.h"
+#include "cudex/uarray.cu.h"
+#include "cudex/launcher.cu.h"
+#include "cudex/cub.cu.h"
 
 namespace octree_cuda {
 
@@ -12,6 +15,7 @@ inline constexpr Index INVALID_INDEX = static_cast<Index>(-1);
 
 namespace impl {
 class Octant;
+class PointInfo;
 }
 
 template<bool isDevice, typename Point>
@@ -70,6 +74,8 @@ private:
     void makeOctantTree();
     Index makeOctant(const Point3D& center, float extent, Index startPoint, Index endPoint, size_t level);
 
+    void makeOctantTreeGPU();
+
     template<typename T>
     friend class OctreeTest;
 
@@ -85,8 +91,18 @@ private:
     std::vector<Index> tmpIndexes_;
     std::vector<uint8_t> tmpCategories_;
 
-    cudex::DeviceMemory<Index> pointIndexesMem_;
+    cudex::DeviceSpan<const Index> pointIndexesDev_;
+
+    cudex::DeviceMemory<Index> pointIndexesMem_[2];
     cudex::DeviceMemory<impl::Octant> octantsMem_;
+
+    cudex::DeviceMemory<impl::PointInfo> tmpPointInfosMem_;
+    cudex::DeviceMemory<cudex::UArray<uint32_t, 8>> tmpBlockMem_;
+
+    cudex::HostDeviceMemory<cudex::UArray<uint32_t, 8>> tmpChildrenMem_;
+    cudex::HostDeviceMemory<Point3D> minMaxPointsMem_;
+
+    cudex::Reduce reduce_;
 };
 
 

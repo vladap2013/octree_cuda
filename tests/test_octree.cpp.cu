@@ -29,9 +29,16 @@ __host__ __device__ float get(const TestPoint& point)
     return point.zval;
 }
 
+
+class OctreeBasicTests : public testing::TestWithParam<bool>
+{
+};
+
 }
 
-TEST(octree_cuda, cube)
+
+
+TEST_P(OctreeBasicTests, cube)
 {
     const std::vector<TestPoint> points = {
         {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
@@ -55,7 +62,12 @@ TEST(octree_cuda, cube)
     HostDeviceMemory<TestPoint> queriesMem(queries);
 
     Octree<TestPoint> octree;
-    octree.initialize(pointsMem.host(), pointsMem.device());
+    if (GetParam()) {
+        octree.initialize(pointsMem.host(), pointsMem.device());
+    }
+    else {
+        octree.initializeDevice(pointsMem.host(), pointsMem.device());
+    }
 
     const auto deviceq = octree.deviceIndex();
     const auto hostq = octree.hostIndex();
@@ -77,7 +89,7 @@ TEST(octree_cuda, cube)
     t.check();
 }
 
-TEST(octree_cuda, random)
+TEST_P(OctreeBasicTests, random)
 {
     constexpr size_t N_POINTS = 200000;
     constexpr size_t N_QUERIES = 5331;
@@ -100,7 +112,15 @@ TEST(octree_cuda, random)
     // octree_cuda init
     Octree<float3> octree;
     const auto timerInit = Timer();
-    octree.initialize(pointsMem.host(), pointsMem.device());
+    if (GetParam()) {
+        VLOG(1) << "octree_cuda: CPU initialization";
+        octree.initialize(pointsMem.host(), pointsMem.device());
+    }
+    else {
+        VLOG(1) << "octree_cuda: GPU initialization";
+        octree.initializeDevice(pointsMem.host(), pointsMem.device());
+    }
+
     VLOG(1) << timerInit.printMs("octree_cuda: init time");
 
     // validate internal structures
@@ -150,4 +170,5 @@ TEST(octree_cuda, random)
     }
 }
 
+INSTANTIATE_TEST_SUITE_P(OctreeBasicTests, OctreeBasicTests, testing::Values(true, false));
 

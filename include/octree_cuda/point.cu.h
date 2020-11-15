@@ -64,8 +64,7 @@ struct Point3D
     {
         uint8_t code = 0;
 
-        constexpr int DIMS[] = {0, 1, 2};
-        for (auto dim : DIMS) {
+        for (auto dim : {0, 1, 2}) {
             if (point[dim] > (*this)[dim]) {
                 code |= (1 << dim);
             }
@@ -79,12 +78,12 @@ struct Point3D
         return elementWise(&fabsf);
     }
 
-    __host__ __device__ Point3D min(const Point3D& other)
+    __host__ __device__ Point3D min(const Point3D& other) const
     {
         return elementWise(other, &fminf);
     }
 
-    __host__ __device__ Point3D max(const Point3D& other)
+    __host__ __device__ Point3D max(const Point3D& other) const
     {
         return elementWise(other, &fmaxf);
     }
@@ -95,6 +94,16 @@ struct Point3D
     }
 
 };
+
+__host__ __device__ inline Point3D mortonCodeToOctantVector(uint8_t mortonCode)
+{
+    Point3D vec;
+    for (int d : {0, 1, 2}) {
+        vec[d] = (mortonCode & (1 << d)) > 0 ? 1 : -1;
+    }
+
+    return vec;
+}
 
 __host__ __device__ inline Point3D operator-(const Point3D& p1, const Point3D& p2)
 {
