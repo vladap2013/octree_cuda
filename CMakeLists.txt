@@ -11,6 +11,10 @@ set(CUDA_STANDARD 17)
 set(CUDA_STANDARD_REQUIRED ON)
 
 # ----- cudex library
+if (EXISTS ${CMAKE_SOURCE_DIR}/local/cudex)
+	add_subdirectory(local/cudex)
+endif()
+
 if (NOT TARGET cudex_lib)
 	message("Downloading cudex")
 	include(FetchContent)
@@ -40,6 +44,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror")
 	set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Werror all-warnings")
+	set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --extended-lambda")
 endif()
 
 if (NOT TARGET gtest_main)
