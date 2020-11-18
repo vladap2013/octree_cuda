@@ -35,9 +35,13 @@ bool allFinite(const float3& v)
     return isfinite(v.x) && isfinite(v.y) && isfinite(v.z);
 }
 
+class OctreePointCloudTests : public testing::TestWithParam<bool>
+{
+};
+
 }
 
-TEST(octree_point_cloud, pc1)
+TEST_P(OctreePointCloudTests, pc1)
 {
     using namespace cudex;
 
@@ -144,6 +148,6 @@ TEST(octree_point_cloud, pc1)
         EXPECT_EQ(cpuResult[i], resultsMem[i]);
         EXPECT_EQ(cpuResult[i], unibnResult[i]);
     }
-
-
 }
+
+INSTANTIATE_TEST_SUITE_P(OctreePointCloudTests, OctreePointCloudTests, testing::Values(true, false));
