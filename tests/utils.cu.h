@@ -146,8 +146,10 @@ void OctreeTest<Point>::checkOctant(Index idx)
 
     if (o.isLeaf) {
         for (size_t i = 0; i < o.count; ++i) {
-            const auto p = Point3D(ot.hostPoints_[ot.pointIndexes_[o.start + i]]);
-            ASSERT_LE((p - o.center).abs().maxElement() * 0.99999, o.extent);
+            const Index ptIndex = ot.pointIndexes_[o.start + i];
+            const auto p = Point3D(ot.hostPoints_[ptIndex]);
+            ASSERT_LE((p - o.center).abs().maxElement() * 0.99999, o.extent)
+                << "Octant: " << idx << ", ptindex: " << ptIndex << ", local index: " << i;
         };
     }
     else {

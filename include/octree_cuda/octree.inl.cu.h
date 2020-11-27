@@ -7,8 +7,6 @@
 
 namespace octree_cuda::impl {
 
-using namespace cudex;
-
 using OctantIndex = Index;
 
 constexpr inline size_t MAX_STACK_SIZE = 32;
@@ -17,14 +15,6 @@ constexpr inline uint8_t INVALID_CHILD = 255;
 constexpr inline uint8_t N_OCTANT_CHILDREN = 8;
 
 const inline static uint8_t __device__ CHILD_INDEXES[] = {0, 1, 2, 3, 4, 5, 6, 7};
-
-using ChildCounts = cudex::UArray<Index, 8>;
-
-struct PointInfo
-{
-    Index localIdx;
-    uint8_t childIdx;
-};
 
 struct Octant
 {
@@ -87,188 +77,29 @@ struct StackState
     uint8_t currentChild = INVALID_CHILD;
 };
 
-// -------------------------------------------------------------------------------------------------
-// CUDA
-
-template<typename Point>
-struct TransformToPoint
+class TTimer
 {
-    __host__ __device__ Point3D operator()(const Point& point) const
-    {
-        return Point3D(point);
+public:
+    TTimer() : start_(std::chrono::high_resolution_clock::now())
+    {}
+
+    double elapsedMs() const {
+        return std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - start_
+        ).count() / 1000.;
     }
+
+    std::string printMs(const std::string& message) const {
+        return message + ": " + std::to_string(elapsedMs()) + " ms";
+    }
+
+private:
+    std::chrono::time_point<std::chrono::high_resolution_clock> start_;
 };
-
-struct MinElements
-{
-    __host__ __device__ Point3D operator()(const Point3D& p1, const Point3D& p2) const
-    {
-        return p1.min(p2);
-    }
-};
-
-struct MaxElements
-{
-    __host__ __device__ Point3D operator()(const Point3D& p1, const Point3D& p2) const
-    {
-        return p1.max(p2);
-    }
-};
-
-
-// We have to use static here, because nvcc complains if inline is used with __global__
-static __global__ void kernelInitIndex(DeviceSpan<Index> data)
-{
-    const auto index = threadLinearIndex();
-    if (index >= data.size())
-    {
-        return;
-    }
-
-    data[index] = index;
-}
-
-
-static __global__ void kernelInitChildCounts(DeviceSpan<ChildCounts> data)
-{
-    const auto index = threadLinearIndex();
-    if (index >= data.size())
-    {
-        return;
-    }
-
-    data[index].fill(0);
-}
-
-static __global__ void copyPointIndexes(
-    Index start,
-    size_t count,
-    DeviceSpan<const Index> src,
-    DeviceSpan<Index> dst)
-{
-    assert(src.size() == dst.size());
-
-    const auto index = threadLinearIndex();
-
-    if (index >= count)
-    {
-        return;
-    }
-
-    const Index pi = start + index;
-    dst[pi] = src[pi];
-}
-
-
-template<typename Point>
-__global__ void kernelCountChildPoints(
-        const Point3D octantCenter,
-        const Index octantStart,
-        const size_t octantSize,
-        DeviceSpan<const Index> src,
-        DeviceSpan<PointInfo> pointInfos,
-        DeviceSpan<ChildCounts> blockStarts,
-        ChildCounts* ptrChildCounts,
-        DeviceSpan<const Point> points)
-{
-    __shared__ ChildCounts counts;
-
-    const auto index = threadLinearIndex();
-    if (index >= octantSize)
-    {
-        return;
-    }
-
-    assert(pointInfos.size() == points.size());
-
-    const size_t thread = threadIdx.x;
-
-    assert(blockIdx.y == 0);
-    assert(blockIdx.z == 0);
-
-    ChildCounts& childCounts = *ptrChildCounts;
-
-    if (thread == 0) {
-        counts.fill(0);
-    }
-
-    __syncthreads();
-
-    const Index pi = octantStart + index;
-
-    const auto p = Point3D(points[src[pi]]);
-    const auto childIdx = octantCenter.mortonCode(p);
-
-    assert(childIdx < 8);
-    assert(pi < pointInfos.size());
-
-    pointInfos[pi].localIdx = atomicAdd_block(&counts[childIdx], 1);
-    pointInfos[pi].childIdx = childIdx;
-
-    __syncthreads();
-
-    assert(blockIdx.x < blockStarts.size());
-    auto& bs = blockStarts[blockIdx.x];
-
-    if (thread == 0) {
-        for (size_t i : CHILD_INDEXES) {
-            bs[i] = counts[i] > 0
-                ? atomicAdd(&childCounts[i], counts[i])
-                : INVALID_INDEX;
-        }
-    }
-}
-
-static __global__ void kernelWritePoints(
-        const Index octantStart,
-        const size_t octantSize,
-        DeviceSpan<const Index> src,
-        DeviceSpan<Index> dst,
-        DeviceSpan<const PointInfo> pointInfos,
-        DeviceSpan<const ChildCounts> blockStarts,
-        const ChildCounts* ptrChildCounts)
-{
-    __shared__ ChildCounts childStarts;
-
-    assert(src.size() == dst.size());
-
-    const auto index = threadLinearIndex();
-    if (index >= octantSize)
-    {
-        return;
-    }
-
-    const ChildCounts& childCounts = *ptrChildCounts;
-
-    const size_t thread = threadIdx.x;
-
-    if (thread == 0) {
-        size_t start = 0;
-        for (auto i : CHILD_INDEXES) {
-            childStarts[i] = start;
-            start += childCounts[i];
-        }
-    }
-
-    __syncthreads();
-
-    const Index pi = octantStart + index;
-    const PointInfo& info = pointInfos[pi];
-
-    assert(info.childIdx < 8);
-    assert(pi < src.size());
-
-    const Index position = octantStart
-        + childStarts[info.childIdx]
-        + blockStarts[blockIdx.x][info.childIdx]
-        + info.localIdx;
-
-    assert(position < dst.size());
-    dst[position] = src[pi];
-}
 
 } // namespace octree_cuda::impl
 
+#include "octree_cuda_impl.inl.cu.h"
 
 namespace octree_cuda {
 
@@ -414,7 +245,7 @@ Index Octree<Point>::makeOctant(
     o.start = start;
     o.count = count;
 
-    o.isLeaf = count <= params_.bucketSize || extent <= params_.minExtent;
+    setIsLeaf(o);
 
     for (auto& c: o.children) {
         c = INVALID_INDEX;
@@ -486,7 +317,7 @@ Index Octree<Point>::makeOctant(
 
     // ---- Create child octants
 
-    for (size_t childIdx = 0; childIdx < impl::N_OCTANT_CHILDREN; ++childIdx) {
+    for (auto childIdx : impl::CHILD_INDEXES) {
         const auto& info = childInfo[childIdx];
 
         if (info.count == 0) {
@@ -513,19 +344,29 @@ template<typename Point>
 void Octree<Point>::makeOctantTreeGPU()
 {
     using namespace impl;
+    TTimer timer;
 
     const size_t nPoints = hostPoints_.size();
     assert(hostPoints_.size() == devicePoints_.size());
+
+    // Init device memory 
 
     DeviceSpan<Index> src = pointIndexesMem_[0].resize(nPoints);
     DeviceSpan<Index> dst = pointIndexesMem_[1].resize(nPoints);
 
     tmpPointInfosMem_.resize(nPoints);
+    tmpPointOctantMem_.resize(nPoints);
+
+    auto launcherPoints = cudex::Launcher(nPoints).async();
+    launcherPoints.run(impl::kernelInitIndex,
+        src,
+        tmpPointOctantMem_.span()
+    );
+
+    tmpBlockInfosMem_.resize(launcherPoints.blockCount());
+
+    // Create initial octant
     minMaxPointsMem_.resize(2);
-
-    auto launcher = cudex::Launcher(nPoints).async();
-    launcher.run(impl::kernelInitIndex, src);
-
     Point3D* out = minMaxPointsMem_.device().frontPtr();
 
     const auto initial = Point3D(hostPoints_[0]);
@@ -541,102 +382,138 @@ void Octree<Point>::makeOctantTreeGPU()
     octants_.back().setCenterExtent(minMaxPointsMem_[0], minMaxPointsMem_[1]);
     octants_.back().start = 0;
     octants_.back().count = nPoints;
+    setIsLeaf(octants_.back());
 
+    // Setup main loop
     size_t currentStart = 0;
     size_t currentEnd = 1;
     size_t currentLevel = 0;
 
-    while (currentStart < currentEnd) {
+    std::vector<impl::OctantDevInfo> octantDevInfos = { {0, octants_.back().center, false} };
+    std::vector<Index> octantChildIds;
+
+    bool allLeafs = octants_.back().isLeaf;
+    while (currentStart < currentEnd && !allLeafs) {
         if (currentLevel == impl::MAX_STACK_SIZE) {
             throw std::runtime_error("Cannot build octree: too many levels");
         }
+
+        VLOG(2) << "Level: " << currentLevel << timer.printMs(", start");
+        VLOG(2) << "range: " << currentStart << " - " << currentEnd;
 
         const size_t nOctants = currentEnd - currentStart;
 
         tmpChildrenMem_.resize(nOctants);
 
-        launcher.size1D(nOctants);
-        launcher.run(kernelInitChildCounts, tmpChildrenMem_.device());
+        assert(octantDevInfos.size() == nOctants);
+        tmpOctantDevInfoMem_.resizeCopy(cudex::makeSpan(octantDevInfos));
 
-        for (size_t i = 0; i < nOctants; ++i) {
-            Octant& o = octants_[currentStart + i];
-
-            o.children.fill(0);
-            o.isLeaf = o.count <= params_.bucketSize || o.extent <= params_.minExtent;
-
-            launcher.size1D(o.count);
-            if (! o.isLeaf) {
-
-                const size_t nBlocks = launcher.blockCount();
-                tmpBlockMem_.resize(nBlocks);
-
-                launcher.run(impl::kernelCountChildPoints<Point>,
-                    o.center,
-                    o.start,
-                    o.count,
-                    src,
-                    tmpPointInfosMem_.span(),
-                    tmpBlockMem_.span(),
-                    tmpChildrenMem_.device().data() + i,
-                    devicePoints_
-                );
-
-                launcher.run(impl::kernelWritePoints,
-                    o.start,
-                    o.count,
-                    src,
-                    dst,
-                    tmpPointInfosMem_.cspan(),
-                    tmpBlockMem_.cspan(),
-                    tmpChildrenMem_.cdevice().data() + i
-                );
-            }
-            else {
-                launcher.run(impl::copyPointIndexes,
-                    o.start,
-                    o.count,
-                    src,
-                    dst
-                );
+        if (nOctants < 50) {
+            size_t jj = currentStart;
+            for (const auto& oi : octantDevInfos) {
+                VLOG(2) << "    octantDevInfo: start: " << oi.start << ", center: " << oi.center;
+                VLOG(2) << "       Ocnant: start: " << octants_[jj].start << ", extent: " << octants_[jj].extent;
+                ++jj;
             }
         }
+
+        auto launcherOctants = cudex::Launcher(nOctants).async();
+
+        launcherOctants.run(kernelInitChildCounts,
+            tmpChildrenMem_.device()
+        );
+
+        launcherPoints.run(impl::kernelCountChildPoints<Point, MAX_OCTANTS_PER_BLOCK>,
+            currentStart,
+            tmpOctantDevInfoMem_.cspan(),
+            src,
+            devicePoints_,
+            tmpPointOctantMem_.cspan(),
+            tmpPointInfosMem_.span(),
+            tmpBlockInfosMem_.span(),
+            tmpChildrenMem_.device()
+        );
+
+        launcherPoints.run(impl::kernelWritePoints<MAX_OCTANTS_PER_BLOCK>,
+            currentStart,
+            tmpOctantDevInfoMem_.cspan(),
+            src,
+            dst,
+            tmpPointInfosMem_.cspan(),
+            tmpPointOctantMem_.cspan(),
+            tmpBlockInfosMem_.cspan(),
+            tmpChildrenMem_.cdevice()
+        );
 
         syncCuda();
         tmpChildrenMem_.copyDeviceToHost();
 
+        octantChildIds.resize(nOctants);
+        octantDevInfos.clear();
+
+        allLeafs = true;
         for (size_t i = 0; i < nOctants; ++i) {
             const Index oind = currentStart + i;
             Octant& o = octants_[oind];
+            assert(o.count > 0);
 
-            if (octants_[oind].isLeaf) {
+            const auto& cinf = tmpChildrenMem_[i];
+
+            Index startIndex = o.start;
+
+            if (o.isLeaf) {
+                octantChildIds.push_back(INVALID_INDEX);
                 continue;
             }
 
-            Index start = o.start;
-            for (auto childIdx : CHILD_INDEXES) {
-                const auto& childCounts = tmpChildrenMem_[i];
-                const size_t childCount = childCounts[childIdx];
+            allLeafs = false;
+            octantChildIds.push_back(octants_.size());
 
-                if (childCount == 0) {
-                    octants_[oind].children[childIdx] = INVALID_INDEX;
+            for (auto childIdx : CHILD_INDEXES) {
+                const Index count = cinf[childIdx];
+                if (count == 0) {
+                    assert(octants_[oind].children[childIdx] == INVALID_INDEX);
                     continue;
                 }
 
                 octants_[oind].children[childIdx] = octants_.size();
-
                 octants_.emplace_back();
-                auto& oc = octants_.back();
+
+                auto &oc = octants_.back();
 
                 oc.extent = octants_[oind].extent * 0.5;
                 oc.center = octants_[oind].center + oc.extent * mortonCodeToOctantVector(childIdx);
 
-                oc.start = start;
-                oc.count = childCount;
-                start += childCount;
+                oc.count = count;
+                oc.start = startIndex;
+                startIndex += count;
+
+                oc.children.fill(INVALID_INDEX);
+                setIsLeaf(oc);
+
+                if (currentLevel == 0) {
+                    oc.isLeaf = true;
+                }
+
+                octantDevInfos.push_back({oc.start, oc.center, oc.isLeaf});
             }
 
-            assert(start == octants_[oind].start + octants_[oind].count);
+            CHECK_EQ(startIndex, o.start + o.count);
+            CHECK_GT(octants_.size(), octantChildIds.back());
         }
+
+        tmpOctantChildIdsMem_.resizeCopy(cudex::makeSpan(octantChildIds));
+
+        launcherPoints.run(kernelUpdatePointOctant<MAX_OCTANTS_PER_BLOCK>,
+            currentStart,
+            tmpPointOctantMem_.span(),
+            src,
+            tmpOctantChildIdsMem_.cspan(),
+            tmpOctantDevInfoMem_.cspan(),
+            tmpPointInfosMem_.cspan(),
+            tmpBlockInfosMem_.cspan(),
+            tmpChildrenMem_.cdevice()
+        );
 
         currentStart = currentEnd;
         currentEnd = octants_.size();
@@ -651,6 +528,11 @@ void Octree<Point>::makeOctantTreeGPU()
     octantsMem_.resizeCopy(cudex::makeSpan(octants_));
 }
 
+template<typename Point>
+void Octree<Point>::setIsLeaf(impl::Octant& o) const
+{
+    o.isLeaf = o.count <= params_.bucketSize || o.extent <= params_.minExtent;
+}
 
 // -------------------------------------------------------------------------------------------------
 // OctreeIndex

@@ -16,6 +16,12 @@ inline constexpr Index INVALID_INDEX = static_cast<Index>(-1);
 namespace impl {
 class Octant;
 class PointInfo;
+class OctantDevInfo;
+
+template<size_t>
+class BlockInfo;
+
+using ChildCounts = cudex::UArray<Index, 8>;
 }
 
 template<bool isDevice, typename Point>
@@ -79,6 +85,11 @@ private:
     template<typename T>
     friend class OctreeTest;
 
+    void setIsLeaf(impl::Octant& octant) const;
+
+private:
+    constexpr inline static size_t MAX_OCTANTS_PER_BLOCK = 10;
+
 private:
     Params params_;
 
@@ -97,9 +108,12 @@ private:
     cudex::DeviceMemory<impl::Octant> octantsMem_;
 
     cudex::DeviceMemory<impl::PointInfo> tmpPointInfosMem_;
-    cudex::DeviceMemory<cudex::UArray<uint32_t, 8>> tmpBlockMem_;
+    cudex::DeviceMemory<Index> tmpPointOctantMem_;
+    cudex::DeviceMemory<impl::BlockInfo<MAX_OCTANTS_PER_BLOCK>> tmpBlockInfosMem_;
+    cudex::DeviceMemory<impl::OctantDevInfo> tmpOctantDevInfoMem_;
+    cudex::DeviceMemory<Index> tmpOctantChildIdsMem_;
 
-    cudex::HostDeviceMemory<cudex::UArray<uint32_t, 8>> tmpChildrenMem_;
+    cudex::HostDeviceMemory<impl::ChildCounts> tmpChildrenMem_;
     cudex::HostDeviceMemory<Point3D> minMaxPointsMem_;
 
     cudex::Reduce reduce_;

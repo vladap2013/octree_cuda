@@ -104,7 +104,14 @@ TEST_P(OctreePointCloudTests, pc1)
     // octree_cuda init
     Octree<float3> octree;
     const auto timerInit = Timer();
-    octree.initialize(pointsMem.host(), pointsMem.device());
+    if (GetParam()) {
+        VLOG(1) << "octree_cuda: CPU initialization";
+        octree.initialize(pointsMem.host(), pointsMem.device());
+    }
+    else {
+        VLOG(1) << "octree_cuda: GPU initialization";
+        octree.initializeDevice(pointsMem.host(), pointsMem.device());
+    }
     VLOG(1) << timerInit.printMs("octree_cuda: init time");
 
     // validate internal structures
