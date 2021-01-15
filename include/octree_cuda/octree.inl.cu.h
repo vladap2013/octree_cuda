@@ -412,7 +412,7 @@ void Octree<Point>::makeOctantTreeGPU()
             size_t jj = currentStart;
             for (const auto& oi : octantDevInfos) {
                 VLOG(2) << "    octantDevInfo: start: " << oi.start << ", center: " << oi.center;
-                VLOG(2) << "       Ocnant: start: " << octants_[jj].start << ", extent: " << octants_[jj].extent;
+                VLOG(2) << "       Octant: start: " << octants_[jj].start << ", extent: " << octants_[jj].extent;
                 ++jj;
             }
         }
@@ -448,7 +448,7 @@ void Octree<Point>::makeOctantTreeGPU()
         syncCuda();
         tmpChildrenMem_.copyDeviceToHost();
 
-        octantChildIds.resize(nOctants);
+        octantChildIds.clear();
         octantDevInfos.clear();
 
         allLeafs = true;
@@ -490,10 +490,6 @@ void Octree<Point>::makeOctantTreeGPU()
 
                 oc.children.fill(INVALID_INDEX);
                 setIsLeaf(oc);
-
-                if (currentLevel == 0) {
-                    oc.isLeaf = true;
-                }
 
                 octantDevInfos.push_back({oc.start, oc.center, oc.isLeaf});
             }
