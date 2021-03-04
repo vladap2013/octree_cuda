@@ -370,7 +370,7 @@ void Octree<Point>::makeOctantTreeGPU()
     Point3D* out = minMaxPointsMem_.device().frontPtr();
 
     const auto initial = Point3D(hostPoints_[0]);
-    reduce_.runTransformed(devicePoints_, TransformToPoint<Point>(), MinElements(), initial, out);
+    reduce_.runTransformed(devicePoints_, TransformToPoint<Point>(), MinElements(), initial, out + 0);
     reduce_.runTransformed(devicePoints_, TransformToPoint<Point>(), MaxElements(), initial, out + 1);
 
     syncCuda();
@@ -408,11 +408,11 @@ void Octree<Point>::makeOctantTreeGPU()
         assert(octantDevInfos.size() == nOctants);
         tmpOctantDevInfoMem_.resizeCopy(cudex::makeSpan(octantDevInfos));
 
-        if (nOctants < 50) {
+        if (nOctants < 100) {
             size_t jj = currentStart;
             for (const auto& oi : octantDevInfos) {
                 VLOG(2) << "    octantDevInfo: start: " << oi.start << ", center: " << oi.center;
-                VLOG(2) << "       Octant: start: " << octants_[jj].start << ", extent: " << octants_[jj].extent;
+                VLOG(2) << "       Octant: start: " << octants_[jj].start << ", count: " << octants_[jj].count <<  ", extent: " << octants_[jj].extent;
                 ++jj;
             }
         }
@@ -426,7 +426,7 @@ void Octree<Point>::makeOctantTreeGPU()
         launcherPoints.run(impl::kernelCountChildPoints<Point, MAX_OCTANTS_PER_BLOCK>,
             currentStart,
             tmpOctantDevInfoMem_.cspan(),
-            src,
+            src.cspan(),
             devicePoints_,
             tmpPointOctantMem_.cspan(),
             tmpPointInfosMem_.span(),
@@ -434,10 +434,12 @@ void Octree<Point>::makeOctantTreeGPU()
             tmpChildrenMem_.device()
         );
 
+        cudaMemset(dst.data(), 0, dst.size_bytes());
+
         launcherPoints.run(impl::kernelWritePoints<MAX_OCTANTS_PER_BLOCK>,
             currentStart,
             tmpOctantDevInfoMem_.cspan(),
-            src,
+            src.cspan(),
             dst,
             tmpPointInfosMem_.cspan(),
             tmpPointOctantMem_.cspan(),
@@ -466,7 +468,6 @@ void Octree<Point>::makeOctantTreeGPU()
                 continue;
             }
 
-            allLeafs = false;
             octantChildIds.push_back(octants_.size());
 
             for (auto childIdx : CHILD_INDEXES) {
@@ -491,6 +492,12 @@ void Octree<Point>::makeOctantTreeGPU()
                 oc.children.fill(INVALID_INDEX);
                 setIsLeaf(oc);
 
+                if (currentLevel == 2) {
+                    oc.isLeaf = true;
+                }
+
+                allLeafs &&= oc.isLeaf;
+
                 octantDevInfos.push_back({oc.start, oc.center, oc.isLeaf});
             }
 
@@ -511,10 +518,12 @@ void Octree<Point>::makeOctantTreeGPU()
             tmpChildrenMem_.cdevice()
         );
 
+        swap(src, dst);
+        cudaMemset(dst.data(), dst.size_bytes(), 0);
+
         currentStart = currentEnd;
         currentEnd = octants_.size();
         currentLevel++;
-        swap(src, dst);
     }
 
     pointIndexesDev_ = src;

@@ -167,8 +167,10 @@ __global__ void kernelCountChildPoints(
     __syncthreads();
 
     assert(nOctants > 0 || myOctant == INVALID_INDEX);
-    if (srcIndex != INVALID_INDEX && myOctant != INVALID_INDEX)
+    if (myOctant != INVALID_INDEX)
     {
+        assert(srcIndex != INVALID_INDEX);
+
         const auto p = Point3D(points[srcIndex]);
 
         const Index localOctant = myOctant - octantBegin;
@@ -186,8 +188,8 @@ __global__ void kernelCountChildPoints(
 
     __syncthreads();
 
-    assert(blockIdx.y == 1);
-    assert(blockIdx.z == 1);
+    assert(blockIdx.y == 0);
+    assert(blockIdx.z == 0);
     assert(blockIdx.x < blockInfos.size());
 
     auto& binfo = blockInfos[blockIdx.x];
@@ -195,7 +197,7 @@ __global__ void kernelCountChildPoints(
     if (blockThreadId < nOctants) {
         for (size_t i : CHILD_INDEXES) {
             const Index count = localCounts[blockThreadId][i];
-            const Index octant = BatchOctantBegin + blockThreadId;
+            const Index octant = batchOctantBegin + blockThreadId;
 
             binfo.starts[blockThreadId][i] = count > 0
                 ? atomicAdd(&childCounts[octant][i], count)
@@ -237,15 +239,17 @@ __global__ void kernelWritePoints(
 
         for (size_t i = 0; i < binfo.nOctants; ++i)
         {
-            const Index oi = binfo.octantBegin + i - startOctant;
-            localChildCounts[i] = childCounts[oi];
-            localOctantInfos[i] = octantInfos[oi];
+            const Index batchOctantBegin = binfo.octantBegin - startOctant;
+
+            localChildCounts[i] = childCounts[batchOctantBegin + i];
+            localOctantInfos[i] = octantInfos[batchOctantBegin + i];
         }
     }
 
     __syncthreads();
 
     const auto index = threadLinearIndex();
+    const auto index2 = index;
     if (index < src.size()) {
         const Index srcIndex = src[index];
         const Index octant = pointOctants[srcIndex];
@@ -270,7 +274,11 @@ __global__ void kernelWritePoints(
                 pi.localIdx;
         }
 
-        @@@assert(dst[dstIndex] == 0);
+        if (dst[dstIndex] != 0) {
+            printf("ZZ1: %d %d %d %d\n", (int) index2, (int) srcIndex, (int) dstIndex, (int) dst[dstIndex]);
+        }
+
+        // assert(dst[dstIndex] == 0);
         dst[dstIndex] = srcIndex;
     }
 }
@@ -299,7 +307,9 @@ __global__ void kernelUpdatePointOctant(
 
         for (size_t i = 0; i < binfo.nOctants; ++i)
         {
-            const Index oi = binfo.octantBegin + i - startOctant;
+            const Index batchOctantBegin = binfo.octantBegin - startOctant;
+            const Index oi = batchOctantBegin + i;
+
             localChildCounts[i] = childCount[oi];
             localOctantChildIds[i] = octantChildIds[oi];
             localOctantInfos[i] = octantInfos[oi];
@@ -320,13 +330,17 @@ __global__ void kernelUpdatePointOctant(
 
         if (parentOctant >= startOctant && !localOctantInfos[oi].isLeaf)
         {
-            assert(parentOctant < startOctant + binfo.nOctants);
+            assert(binfo.octantBegin <= parentOctant && parentOctant < binfo.octantBegin + binfo.nOctants);
 
-            Index newOctant = localOctantChildIds[oi];
+            const Index loi = parentOctant - binfo.octantBegin;
+
+            Index newOctant = localOctantChildIds[loi];
             assert(newOctant != INVALID_INDEX);
+
             for (size_t i=0; i < pi.childIdx; ++i) {
-                newOctant += localChildCounts[oi][i] > 0 ? 1 : 0;
+                newOctant += localChildCounts[loi][i] > 0 ? 1 : 0;
             }
+
             pointOctants[srcIndex] = newOctant;
         }
     }

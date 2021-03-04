@@ -143,7 +143,7 @@ void OctreeTest<Point>::checkOctant(Index idx)
     auto& o = octant(idx);
 
     ASSERT_GT(o.count, 0);
-    VLOG(2) << "Checking octant: " << idx << ", count: " << o.count;
+    // VLOG(2) << "Checking octant: " << idx << ", count: " << o.count;
 
     if (o.isLeaf) {
         for (size_t i = 0; i < o.count; ++i) {

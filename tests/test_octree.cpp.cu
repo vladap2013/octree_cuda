@@ -93,6 +93,7 @@ TEST_P(OctreeBasicTests, random)
 {
     constexpr size_t N_POINTS = 200000;
     constexpr size_t N_QUERIES = 5331;
+    // constexpr size_t N_QUERIES = 531;
 
     constexpr float POINT_RANGE = 100;
     constexpr float QUERY_RANGE = 120;
@@ -140,14 +141,14 @@ TEST_P(OctreeBasicTests, random)
 
     const auto timerCuda = Timer();
     launcher.run(runQuery<float3>, queriesMem.device(), gpuq, resultsMem.device());
-    VLOG(1) << timerCuda.printMs("octree_cuda: cuda time");
+    VLOG(1) << timerCuda.printMs("octree_cuda: cuda query time");
     resultsMem.copyDeviceToHost();
 
     // octree_cuda cpu query
     const auto cpuq = octree.hostIndex();
     const auto timerCPU = Timer();
     const auto cpuResult = runQueryCPU(queriesMem.host(), cpuq);
-    VLOG(1) << timerCPU.printMs("octree_cuda: cpu time");
+    VLOG(1) << timerCPU.printMs("octree_cuda: cpu query time");
 
     EXPECT_EQ(cpuResult.size(), queriesMem.size());
 
