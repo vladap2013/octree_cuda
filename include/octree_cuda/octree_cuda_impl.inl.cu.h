@@ -256,9 +256,11 @@ __global__ void kernelWritePoints(
 
         Index dstIndex = index;
 
-        if (octant >= binfo.octantBegin) {
+        if (octant >= startOctant) {
+            assert(octant >= binfo.octantBegin);
+
             const Index localOctant = octant - binfo.octantBegin;
-            assert(localOctant < OCTANTS_PER_BLOCK);
+            assert(localOctant < binfo.nOctants);
 
             const PointInfo pi = pointInfos[index];
             assert(pi.childIdx < 8);

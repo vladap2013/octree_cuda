@@ -406,7 +406,7 @@ void Octree<Point>::makeOctantTreeGPU()
         tmpChildrenMem_.resize(nOctants);
 
         assert(octantDevInfos.size() == nOctants);
-        tmpOctantDevInfoMem_.resizeCopy(cudex::makeSpan(octantDevInfos));
+        tmpOctantDevInfoMem_.resizeCopy(octantDevInfos);
 
         if (nOctants < 100) {
             size_t jj = currentStart;
@@ -496,7 +496,7 @@ void Octree<Point>::makeOctantTreeGPU()
                     oc.isLeaf = true;
                 }
 
-                allLeafs &&= oc.isLeaf;
+                allLeafs = allLeafs && oc.isLeaf;
 
                 octantDevInfos.push_back({oc.start, oc.center, oc.isLeaf});
             }
